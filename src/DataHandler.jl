@@ -108,7 +108,7 @@ function read_csv(file_path::AbstractString)
         df_additional_courses = DataFrame()
         if length(read_line) > 0 && read_line[1] == "Additional Courses"
             if !is_dp 
-                println("Only Degree Plan can have additional classes") 
+                println("Only Degree Plan can have additional courses") 
                 return false
             end
             additional_course_start = courses_header+course_count+1
@@ -126,10 +126,10 @@ function read_csv(file_path::AbstractString)
             df_all_courses = df_courses
         end
         
-        if is_dp && any(ismissing.(df_all_courses[Symbol("Term")]))
-            println("All courses in Degree Plan must have Term information")
-            return false
-        end  
+        #if is_dp && any(ismissing.(df_all_courses[Symbol("Term")]))
+        #    println("All courses in Degree Plan must have Term information")
+        #   return false
+        #end  
         df_course_learning_outcomes=""
         if length(read_line)>0 && read_line[1] == "Course Learning Outcomes"
             learning_outcomes_start = additional_course_start+additional_course_count+1
@@ -176,17 +176,17 @@ function read_csv(file_path::AbstractString)
             for course in additional_courses
                 push!(ac_arr, course[2])
             end
-
             curric = Curriculum(curric_name, all_courses_arr, learning_outcomes = curric_learning_outcomes, degree_type= curric_dtype,
                                 system_type=curric_stype, institution=curric_inst, CIP=curric_CIP)
-            terms = read_terms(df_all_courses, all_courses, curric.courses)
-            terms_arr = Array{Term}(undef, length(terms))
-            for term in terms
-                terms_arr[term[1]]=Term([class for class in term[2]])
+            terms = read_terms(df_all_courses, all_courses, all_courses_arr)
+            #If some courses has term informations but some does not
+            if isa(terms, Tuple)
+                #Add curriculum to the output tuple
+                output = (terms..., curric, dp_name, ac_arr)
+            else
+                degree_plan = DegreePlan(dp_name, curric, terms, ac_arr)
+                output = degree_plan
             end
-
-            degree_plan = DegreePlan(dp_name, curric, terms_arr, ac_arr)
-            output = degree_plan
         else
             curric_courses = read_all_courses(df_courses, course_learning_outcomes)
             if typeof(curric_courses) == Bool && !curric_courses
@@ -526,4 +526,144 @@ function prepare_data(degree_plan::DegreePlan; edit::Bool=false, hide_header::Bo
         push!(dp_dict["curriculum"]["curriculum_terms"], current_term)
     end
     return dp_dict
+end
+function read_Opt_Config(file_path)
+    file_path = remove_empty_lines(file_path)
+    if typeof(file_path) == Bool && !file_path
+        return false
+    end
+    consequtiveCourses = Dict()
+    fixedCourses = Dict()
+    termRange = Dict()
+    diffMax = Dict()
+    header = 0
+    termCount = 0
+    min_credits_per_term = 0
+    max_credits_per_term = 0
+    obj_order = []
+    open(file_path) do csv_file  
+        read_line = csv_line_reader(readline(csv_file), ',')
+        header += 1
+        if read_line[1] == "Term Count"
+            termCount = parse(Int, read_line[2])
+            read_line = csv_line_reader(readline(csv_file), ',')
+            header += 1
+        else
+            println("First line of config file must contain term count")
+        end
+        if read_line[1] == "Min Credit"
+            min_credits_per_term = parse(Int, read_line[2])
+            read_line = csv_line_reader(readline(csv_file), ',')
+            header += 1
+        else
+            println("First line of config file must contain Min Credit")
+        end
+        if read_line[1] == "Max Credit"
+            max_credits_per_term = parse(Int, read_line[2])
+            read_line = csv_line_reader(readline(csv_file), ',')
+            header += 1
+        else
+            println("First line of config file must contain Max Credit")
+        end
+        if read_line[1] == "Objective Order"
+            obj_order = split(read_line[2],";")
+            read_line = csv_line_reader(readline(csv_file), ',')
+            header += 1
+        else
+            println("First line of config file must contain Max Credit")
+        end
+        if read_line[1] == "Fixed Terms"
+            read_line = csv_line_reader(readline(csv_file), ',')
+            header += 1
+            if read_line[1] != "Course ID" || read_line[2] != "Term"
+                println("Error detected with fixed courses headers.")
+                return false
+            end
+            read_line = csv_line_reader(readline(csv_file), ',')
+            course_count = 0
+            while length(read_line) > 0 && read_line[1] != "Consecutive Terms" && read_line[1] != "Term Range" && !startswith(read_line[1], "#")
+                if length(read_line[1]) == 0 || length(read_line[1]) == 0
+                    println("Each course must have a Course ID and Term number")
+                    return false
+                end
+                course_count += 1
+                read_line = csv_line_reader(readline(csv_file), ',')
+            end
+            df_fixedCourses = CSV.File(file_path, header=header, limit=course_count) |> DataFrame
+            header += course_count+1
+            for row in DataFrames.eachrow(df_fixedCourses)
+                fixedCourses[row[Symbol("Course ID")]] = row[Symbol("Term")]
+            end
+        end
+        if read_line[1] == "Consecutive Terms"
+            read_line = csv_line_reader(readline(csv_file), ',')
+            header += 1
+            if read_line[1] != "Prior Course ID" || read_line[2] != "Next Course ID"
+                println("Error detected with Consecutive Terms headers.")
+                return false
+            end
+            consecutivePairCount = 0
+            read_line = csv_line_reader(readline(csv_file), ',')
+            while length(read_line) > 0 && read_line[1] != "Term Range" && !startswith(read_line[1], "#")
+                if length(read_line[1]) == 0 || length(read_line[1]) == 0
+                    println("Each pair must have two Course IDs")
+                    return false
+                end
+                consecutivePairCount += 1
+                read_line = csv_line_reader(readline(csv_file), ',')
+            end
+            df_consecutivePair = CSV.File(file_path, header=header, limit=consecutivePairCount) |> DataFrame
+            header += consecutivePairCount+1
+            for row in DataFrames.eachrow(df_consecutivePair)
+                consequtiveCourses[row[Symbol("Prior Course ID")]] = row[Symbol("Next Course ID")]
+            end
+        end
+        if read_line[1] == "Term Range"
+            read_line = csv_line_reader(readline(csv_file), ',')
+            header += 1
+            if read_line[1] != "Course Id" || read_line[2] != "Min Term" || read_line[3] != "Max Term" 
+                println("Error detected with Consecutive Terms headers.")
+                return false
+            end
+            termRangeCount = 0
+            read_line = csv_line_reader(readline(csv_file), ',')
+            while length(read_line) > 0 && read_line[1] != "Different Max Credit For Terms" !startswith(read_line[1], "#")
+                if length(read_line[1]) == 0 || length(read_line[1]) == 0
+                    println("Each pair must have two Course IDs")
+                    return false
+                end
+                termRangeCount += 1
+                read_line = csv_line_reader(readline(csv_file), ',')
+            end
+            df_termRange = CSV.File(file_path, header=header, limit=termRangeCount) |> DataFrame
+            header += termRangeCount+1
+            for row in DataFrames.eachrow(df_termRange)
+                termRange[row[Symbol("Course Id")]] = (row[Symbol("Min Term")], row[Symbol("Max Term")])
+            end
+        end
+        if read_line[1] == "Different Max Credit For Terms"
+            read_line = csv_line_reader(readline(csv_file), ',')
+            header += 1
+            if read_line[1] != "Term" || read_line[2] != "Max Credit"
+                println("Error detected with Different Max Credit For Terms headers.")
+                return false
+            end
+            diffMaxCount = 0 
+            read_line = csv_line_reader(readline(csv_file), ',')
+            while length(read_line) > 0 && !startswith(read_line[1], "#")
+                if length(read_line[1]) == 0 || length(read_line[1]) == 0
+                    println("There has to be term id and credit hour")
+                    return false
+                end
+                diffMaxCount += 1
+                read_line = csv_line_reader(readline(csv_file), ',')
+            end
+            df_diffMax = CSV.File(file_path, header=header, limit=diffMaxCount) |> DataFrame
+            header += diffMaxCount+1
+            for row in DataFrames.eachrow(df_diffMax)
+                diffMax[row[Symbol("Term")]] = row[Symbol("Max Credit")]
+            end
+        end
+    end
+    return consequtiveCourses, fixedCourses, termRange, termCount, min_credits_per_term, max_credits_per_term,obj_order, diffMax
 end
