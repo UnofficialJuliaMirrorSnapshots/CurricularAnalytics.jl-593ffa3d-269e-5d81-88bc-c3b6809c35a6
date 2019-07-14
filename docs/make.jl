@@ -17,7 +17,7 @@ makedocs(
         "Reading/Writing Curricula & Degree Plans"  => "persistence.md",
         "Visualizing Curricula & Degree Plans"      => "visualize.md",
         "Metrics"                                   => "metrics.md",
-        "Optimizing Degree Plans"                   => "optimizing.md",
+        "Creating Degree Plans"                     => "degreeplans.md",
         #"Simulating Student Flows"                  => "simulating.md",
         "Contributing"                              => "contributing.md",
         "License Information"                       => "license.md",
@@ -29,7 +29,7 @@ makedocs(
 )
 
 deploydocs(
-    repo    = "github.com/heileman/CurricularAnalytics.jl.git",
+    repo    = "github.com/CurricularAnalytics/CurricularAnalytics.jl.git",
     target  = "build",
 )
 
