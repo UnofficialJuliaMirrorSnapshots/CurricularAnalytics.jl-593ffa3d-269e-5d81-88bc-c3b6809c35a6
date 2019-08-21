@@ -259,7 +259,7 @@ mutable struct Curriculum
         end
         this.CIP = CIP
         if sortby_ID
-            this.courses = sort(collect(courses), by=c->c.id)
+            this.courses = sort(collect(courses), by = c -> c.id)
         else
             this.courses = courses
         end
@@ -285,6 +285,7 @@ end
 #    # if courses array is empty, no new courses were added
 #end
 
+# Map course IDs to vertex IDs in an underlying curriculum graph.
 function map_vertex_ids(curriculum::Curriculum)
     mapped_ids = Dict{Int, Int}()
     for c in curriculum.courses
@@ -293,6 +294,7 @@ function map_vertex_ids(curriculum::Curriculum)
     return mapped_ids
 end
 
+# Determine the course ID associated with a vertex in a curriculum graph.
 function course_from_id(id::Int, curriculum::Curriculum)
     for c in curriculum.courses
         if c.id == id
@@ -301,6 +303,7 @@ function course_from_id(id::Int, curriculum::Curriculum)
     end
 end
 
+# The total number of credit hours in a curriculum
 function total_credits(curriculum::Curriculum)
     total_credits = 0
     for c in curriculum.courses

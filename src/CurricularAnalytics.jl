@@ -26,6 +26,7 @@ include("Visualization.jl")
 export Degree, AA, AS, AAS, BA, BS, System, semester, quarter, Requisite, pre, co, strict_co, EdgeClass, 
         LearningOutcome, Course, add_requisite!, delete_requisite!, Curriculum, total_credits, requisite_type, 
         Term, DegreePlan, find_term, course_from_id, dfs, topological_sort, longest_path, long_paths, 
+        gad, reachable_from, reachable_from_subgraph, reachable_to, reachable_to_subgraph, reach, reach_subgraph,
         isvalid_curriculum, extraneous_requisites, blocking_factor, delay_factor, centrality, complexity, 
         compare_curricula, isvalid_degree_plan, print_plan, visualize, basic_metrics, read_csv, create_degree_plan, 
         bin_packing, bin_packing2, find_min_terms, add_lo_requisite!, update_plan, write_csv, find_min_terms, 
@@ -56,7 +57,7 @@ julia> println(String(take!(errors)))
 
 There are two reasons why a curriculum graph might not be valid:
 - Cycles : If a curriculum graph contains a directed cycle, it is not possible to complete the curriculum.
-- Extraneous Requisites : These are redundant requisites that introduce spurious complexity.
+- Extraneous Requisites : These are redundant requisites that may introduce spurious complexity.
   If a curriculum has the prerequisite relationships \$c_1 \\rightarrow c_2 \\rightarrow c_3\$ 
   and \$c_1 \\rightarrow c_3\$, and \$c_1\$ and \$c_2\$ are *not* co-requisites, then \$c_1 
   \\rightarrow c_3\$ is redundant and therefore extraneous.   
@@ -98,6 +99,7 @@ function extraneous_requisites(c::Curriculum, error_msg::IOBuffer)
     que = Queue{Int}()
     components = weakly_connected_components(g)
     extraneous = false
+    str = "" # create an empty string to hold any error messages
     for wcc in components
         if length(wcc) > 1  # only consider components with more than one vertex
             for u in wcc
@@ -125,7 +127,10 @@ function extraneous_requisites(c::Curriculum, error_msg::IOBuffer)
                                 end
                             end
                             if remove == true
-                                write(error_msg, "-$(c.courses[v].name) has redundant requisite $(c.courses[u].name)\n")
+                                temp_str = "-$(c.courses[v].name) has redundant requisite $(c.courses[u].name)\n"
+                                if !occursin(temp_str, str)
+                                    str = str * temp_str
+                                end
                                 extraneous = true
                             end
                         end
@@ -133,6 +138,9 @@ function extraneous_requisites(c::Curriculum, error_msg::IOBuffer)
                 end
             end
         end
+    end
+    if extraneous == true
+        write(error_msg, str)
     end
     return extraneous
 end
@@ -379,6 +387,112 @@ function compare_curricula(c1::Curriculum, c2::Curriculum)
         end
     end
     return report
+end
+
+# Basic metrics for a currciulum.
+"""
+    basic_metrics(c::Curriculum)
+
+Compute the basic metrics associated with curriculum `c`, and return an IO buffer containing these metrics.  The basic 
+metrics are also stored in the `metrics` dictionary associated with the curriculum. 
+
+The basic metrics computed include:
+
+- number of credit hours : The total number of credit hours in the curriculum.
+- number of courses : The total courses in the curriculum.
+- blocking factor : The blocking factor of the entire curriculum, and of each course in the curriculum.
+- centrality : The centrality measure associated with the entire curriculum, and of each course in the curriculum.
+- delay factor : The delay factor of the entire curriculum, and of each course in the curriculum.
+- curricular complexity : The curricular complexity of the entire curriculum, and of each course in the curriculum.
+
+Complete descriptions of these metrics are provided above.
+
+```julia-repl
+julia> metrics = basic_metrics(curriculum)
+julia> println(String(take!(metrics)))
+julia> # The metrics are also stored in a dictonary that can be accessed as follows
+julia> curriculum.metrics
+```
+"""
+function basic_metrics(curric::Curriculum)
+    buf = IOBuffer()
+    complexity(curric), centrality(curric)  # compute all curricular metrics
+    max_bf = 0; max_df = 0; max_cc = 0; max_cent = 0
+    max_bf_courses = Array{Course,1}(); max_df_courses = Array{Course,1}(); max_cc_courses = Array{Course,1}(); max_cent_courses = Array{Course,1}()
+    for c in curric.courses
+        if c.metrics["blocking factor"] == max_bf
+            push!(max_bf_courses, c)
+        elseif  c.metrics["blocking factor"] > max_bf
+            max_bf = c.metrics["blocking factor"]
+            max_bf_courses = Array{Course,1}()
+            push!(max_bf_courses, c)
+        end
+        if c.metrics["delay factor"] == max_df
+            push!(max_df_courses, c)
+        elseif  c.metrics["delay factor"] > max_df
+            max_df = c.metrics["delay factor"]
+            max_df_courses = Array{Course,1}()
+            push!(max_df_courses, c)
+        end
+        if c.metrics["complexity"] == max_cc
+            push!(max_cc_courses, c)
+        elseif  c.metrics["complexity"] > max_cc
+            max_cc = c.metrics["complexity"]
+            max_cc_courses = Array{Course,1}()
+            push!(max_cc_courses, c)
+        end
+        if c.metrics["centrality"] == max_cent
+            push!(max_cent_courses, c)
+        elseif  c.metrics["centrality"] > max_cent
+            max_cent = c.metrics["centrality"]
+            max_cent_courses = Array{Course,1}()
+            push!(max_cent_courses, c)
+        end
+        curric.metrics["max. blocking factor"] = max_bf
+        curric.metrics["max. blocking factor courses"] = max_bf_courses
+        curric.metrics["max. centrality"] = max_cent
+        curric.metrics["max. centrality courses"] = max_cent_courses
+        curric.metrics["max. delay factor"] = max_df
+        curric.metrics["max. delay factor courses"] = max_df_courses
+        curric.metrics["max. complexity"] = max_cc
+        curric.metrics["max. complexity courses"] = max_cc_courses
+    end
+    write(buf, "\nCurriculum: $(curric.name)\n")
+    write(buf, "  credit hours = $(curric.credit_hours)\n")
+    write(buf, "  number of courses = $(curric.num_courses)")
+    write(buf, "\n  Blocking Factor --\n")
+    write(buf, "    entire curriculum = $(curric.metrics["blocking factor"][1])\n")
+    write(buf, "    max. value = $(max_bf), ")
+    write(buf, "for course(s): ")
+    write(buf, "$(max_bf_courses[1].prefix) $(max_bf_courses[1].num) $(max_bf_courses[1].name)")
+    for c in max_bf_courses[2:end]
+        write(buf, ", $(c.prefix) $(c.num) $(c.name)")
+    end
+    write(buf, "\n  Centrality --\n")
+    write(buf, "    entire curriculum = $(curric.metrics["centrality"][1])\n")
+    write(buf, "    max. value = $(max_cent), ") 
+    write(buf, "for course(s): ")
+    write(buf, "$(max_cent_courses[1].prefix) $(max_cent_courses[1].num) $(max_cent_courses[1].name)")
+    for c in max_cent_courses[2:end]
+        write(buf, ", $(c.prefix) $(c.num) $(c.name)")
+    end
+    write(buf, "\n  Delay Factor --\n")
+    write(buf, "    entire curriculum = $(curric.metrics["delay factor"][1])\n")
+    write(buf, "    max. value = $(max_df), ") 
+    write(buf, "for course(s): ")
+    write(buf, "$(max_df_courses[1].prefix) $(max_df_courses[1].num) $(max_df_courses[1].name)")
+    for c in max_df_courses[2:end]
+        write(buf, ", $(c.prefix) $(c.num) $(c.name)")
+    end
+    write(buf, "\n  Complexity --\n")
+    write(buf, "    entire curriculum = $(curric.metrics["complexity"][1])\n")
+    write(buf, "    max. value = $(max_cc), ") 
+    write(buf, "for course(s): ")
+    write(buf, "$(max_cc_courses[1].prefix) $(max_cc_courses[1].num) $(max_cc_courses[1].name)")
+    for c in max_cc_courses[2:end]
+        write(buf, ", $(c.prefix) $(c.num) $(c.name)")
+    end
+    return buf
 end
 
 end # module
