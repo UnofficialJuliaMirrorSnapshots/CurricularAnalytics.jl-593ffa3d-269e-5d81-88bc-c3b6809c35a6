@@ -179,7 +179,7 @@ in the orginal graph `g`.
 
 # Arguments
 Required:
-- `g::AbstractGraph` : acylic input graph. 
+- `g::AbstractGraph` : acylic graph. 
 - `t::Int` : index of the target vertex in `g`. 
 
 ```julia-rep
@@ -201,7 +201,7 @@ reach vertex `v` and can be reached from `v`.
 
 # Arguments
 Required:
-- `g::AbstractGraph` : acylic input graph. 
+- `g::AbstractGraph` : acylic graph. 
 - `v::Int` : index of a vertex in `g`. 
 """
 function reach(g::AbstractGraph{T}, v::Int) where T
@@ -218,7 +218,7 @@ vertex IDs in the subgraph to their IDs in the orginal graph `g`.
 
 # Arguments
 Required:
-- `g::AbstractGraph` : acylic input graph. 
+- `g::AbstractGraph` : acylic graph. 
 - `v::Int` : index of a vertex in `g`. 
 
 ```julia-rep
@@ -231,6 +231,59 @@ function reach_subgraph(g::AbstractGraph{T}, v::Int) where T
     induced_subgraph(g, vertices)
 end
 
+# find all paths in a graph
+"""
+    all_paths(g)
+
+ Enumerate all of the unique paths in acyclic graph `g`, where a path in this case must include a 
+ source vertex (a vertex with in-degree zero) and a different sink vertex (a vertex with out-degree 
+ zero).  I.e., a path is this case must contain at least two vertices.  This function returns 
+ an array of these paths, where each path consists of an array of vertex IDs.
+
+ # Arguments
+Required:
+- `g::AbstractGraph` : acylic graph. 
+
+```julia-repl
+julia> paths = all_paths(g)
+```
+"""
+function all_paths(g::AbstractGraph{T}) where T
+    # check that g is acyclic
+    if is_cyclic(g)
+        error("all_paths(): input graph has cycles")
+    end
+    que = Queue{Array}()
+    paths = Array[]
+    sinks = Int[]
+    for v in vertices(g)
+        if (length(outneighbors(g,v)) == 0) && (length(inneighbors(g,v)) > 0) # consider only sink vertices with a non-zero in-degree
+            push!(sinks, v)
+        end
+    end
+    for v in sinks
+        enqueue!(que, [v])
+        while !isempty(que) # work backwards from sink v to all sources reachable to v in BFS fashion
+            x = dequeue!(que)
+            for (i, u) in enumerate(inneighbors(g, x[1]))
+                if i == 1
+                    insert!(x, 1, u)  # prepend vertx u to array x, first neighbor
+                else
+                    x[1] = u # put new neighbor at the head of array, replacing an in-neighbor
+                end
+                if length(inneighbors(g, u)) == 0  # reached a source vertex, done with path
+                    if !(x in paths)
+                      push!(paths, x)
+                    end
+                else
+                    enqueue!(que, copy(x))
+                end
+            end
+        end
+    end
+    return paths
+end
+
 # The longest path from vertx s to any other vertex in a DAG G (not necessarily unique).
 # Note: in a DAG G, longest paths in G = shortest paths in -G
 """
@@ -241,7 +294,7 @@ is not necessarily unique, i.e., there can be more than one longest path between
 
  # Arguments
 Required:
-- `g::AbstractGraph` : acylic input graph. 
+- `g::AbstractGraph` : acylic graph. 
 - `s::Int` : index of the source vertex in `g`. 
 
 ```julia-repl
@@ -264,53 +317,33 @@ function longest_path(g::AbstractGraph{T}, s::Int) where T
     return lp
 end
 
-# all long paths in a graph
+# Find all fo the longest paths in an acyclic graph.
 """
-    long_paths(g)
-
- Enumerate all of the unique long paths in acyclic graph `g`, where a "long path" must include a 
- source vertex (a vertex with in-degree zero) and a different sink vertex (a vertex with out-degree 
- zero).  I.e., a long path is any path containing at least two vertices.  This function returns 
- an array of these long paths, where each path consists of an array of vertex IDs.
+    longest_paths(g)
+    
+Finds the set of longest paths in `g`, and returns an array of vertex arrays, where each vertex
+array contains the vertices in a longest path.
 
  # Arguments
 Required:
-- `g::AbstractGraph` : acylic input graph. 
+- `g::AbstractGraph` : acylic graph. 
 
 ```julia-repl
-julia> paths = long_paths(g)
+julia> paths = longest_paths(g)
 ```
 """
-function long_paths(g::AbstractGraph{T}) where T
-    # check that g is acyclic
+function longest_paths(g::AbstractGraph{T}) where T
     if is_cyclic(g)
-        error("long_paths(): input graph has cycles")
+        error("longest_paths(): input graph has cycles")
     end
-    que = Queue{Array}()
-    paths = Array[]
-    sinks = Int[]
-    for v in vertices(g)
-        if (length(outneighbors(g,v)) == 0) && (length(inneighbors(g,v)) > 0) # consider only sink vertices with an in-degree
-            push!(sinks, v)
-        end
+    lps = Array[]
+    max = 0
+    paths = all_paths(g)
+    for path in paths  # find length of longest path
+        length(path) > max ? max = length(path) : nothing
     end
-    for v in sinks
-        enqueue!(que, [v])
-        while !isempty(que) # work backwards from sink v to all sources reachable to v in BFS fashion
-            x = dequeue!(que)
-            for (i, u) in enumerate(inneighbors(g, x[1]))
-                if i == 1
-                    insert!(x, 1, u)  # prepend vertx u to array x, first neighbor
-                else
-                    x[1] = u # put new neighbor at the head of array, replacing an in-neighbor
-                end
-                if length(inneighbors(g, u)) == 0  # reached a source vertex, done with path
-                    push!(paths, x)
-                else
-                    enqueue!(que, copy(x))
-                end
-            end
-        end
+    for path in paths
+        length(path) == max ? push!(lps, path) : nothing
     end
-    return paths
+    return lps
 end
