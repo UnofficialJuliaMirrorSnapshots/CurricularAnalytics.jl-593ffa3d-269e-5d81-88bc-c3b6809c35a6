@@ -28,11 +28,11 @@ export Degree, AA, AS, AAS, BA, BS, System, semester, quarter, Requisite, pre, c
         Course, add_requisite!, delete_requisite!, Curriculum, total_credits, requisite_type, Term, DegreePlan, find_term, 
         course_from_id, course_from_vertex, dfs, topological_sort, all_paths, longest_path, longest_paths, gad, reachable_from, 
         reachable_from_subgraph, reachable_to, reachable_to_subgraph, reach, reach_subgraph, isvalid_curriculum, 
-        extraneous_requisites, blocking_factor, delay_factor, centrality, complexity, dead_end, courses_from_vertices, 
-        compare_curricula, similarity, isvalid_degree_plan, print_plan, visualize, metric_histogram, metric_boxplot, basic_metrics, 
-        basic_statistics, read_csv, create_degree_plan, bin_packing, bin_packing2, find_min_terms, add_lo_requisite!, 
-        update_plan, write_csv, find_min_terms, balance_terms, requisite_distance, balance_terms_opt, find_min_terms_opt, 
-        read_Opt_Config, optimize_plan, json_to_julia, julia_to_json, init_opt
+        extraneous_requisites, blocking_factor, delay_factor, centrality, complexity, dead_ends, courses_from_vertices, 
+        compare_curricula, similarity, homology, isvalid_degree_plan, print_plan, visualize, metric_histogram, metric_boxplot, 
+        show_homology, basic_metrics, basic_statistics, read_csv, create_degree_plan, bin_packing, bin_packing2, find_min_terms, 
+        add_lo_requisite!, update_plan, write_csv, find_min_terms, balance_terms, requisite_distance, balance_terms_opt, 
+        find_min_terms_opt, read_Opt_Config, optimize_plan, json_to_julia, julia_to_json, init_opt
 
 function __init__()
     @require Gurobi="2e9cd046-0924-5485-92f1-d5272153d98b" using .Gurobi
@@ -657,9 +657,9 @@ function similarity(c1::Curriculum, c2::Curriculum; strict::Bool=true)
     else  # strict == false
         for course in c1.courses
             for basis_course in c2.courses 
-                if (basis_course.name == course.name) || (basis_course.prefix == course.prefix && basis_course.number == course.number)
+                if (course.name != "" && basis_course.name == course.name) || (course.prefix != "" && basis_course.prefix == course.prefix && course.num != "" && basis_course.num == course.num)
                     matches += 1
-                    continue
+                    break # only match once 
                 end
             end 
         end
@@ -667,29 +667,44 @@ function similarity(c1::Curriculum, c2::Curriculum; strict::Bool=true)
     return matches/c2.num_courses
 end
 
+function homology(curricula::Array{Curriculum,1}; strict::Bool=false)
+    similarity_matrix = Matrix{Float64}(I, length(curricula), length(curricula))
+    for i = 1:length(curricula)
+        for j = 1:length(curricula)
+            similarity_matrix[i,j] = similarity(curricula[i], curricula[j], strict=strict)
+            similarity_matrix[j,i] = similarity(curricula[j], curricula[i], strict=strict)
+        end
+    end
+    return similarity_matrix
+end
+
 """
-    dead_end(curric, prefixes)
+    dead_ends(curric, prefixes)
 
 Finds all courses in curriculum `curric` that appear at the end of a path (i.e., sink vertices), and returns those courses that 
-do not have one of the course prefixes listed in the `prefixes` array.
+do not have one of the course prefixes listed in the `prefixes` array.  If a course does not have a prefix, it is excluded from
+the analysis.
 
 # Arguments
 - `c::Curriculum` : the target curriculum. 
 - `prefixes::Array{String,1}` : an array of course prefix strings.
 
-For instance, the following will find all courses in `curric` that appear at the end of any course path in the curriculum, and have 
-either prefix `MATH` or `CHEM`.  If this were an engineering curriculum, for instance, one might consider these courses "dead ends," as
-their course outcomes are not used in other courses in the engineering major.
+For instance, the following will find all courses in `curric` that appear at the end of any course path in the curriculum, 
+and do *not* have `BIO` as a prefix.  One might consider these courses "dead ends," as their course outcomes are not used by any 
+major-specific course, i.e., by any course with the prefix `BIO`.
 
 ```julia-repl
-julia> dead_end(curric, ["MATH", "CHEM"])
+julia> dead_ends(curric, ["BIO"])
 ```
 """
-function dead_end(curric::Curriculum, prefixes::Array{String,1})
+function dead_ends(curric::Curriculum, prefixes::Array{String,1})
     dead_end_courses = Array{Course,1}()
     paths = all_paths(curric.graph)
     for p in paths
         course = course_from_vertex(curric, p[end])
+        if course.prefix == "" 
+            continue
+        end
         if !(course.prefix in prefixes)
             if !(course in dead_end_courses)
                 push!(dead_end_courses, course)
